@@ -8,23 +8,23 @@ services:
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
       - HSA_OVERRIDE_GFX_VERSION=9.0.6
+      - VLLM_USE_TRITON_FLASH_ATTN=1
+      - NCCL_P2P_DISABLE=1
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
     group_add:
       - video
-      - render
+      - "992"  # render group GID
     ipc: host
+    entrypoint: ["/bin/bash", "-c"]
     command:
-      - --model
-      - allenai/olmOCR-2-7B-1025
-      - --max-model-len
-      - "16384"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --dtype
-      - half
-      - --trust-remote-code
+      - >-
+        python3 -m vllm.entrypoints.openai.api_server
+        --model allenai/olmOCR-2-7B-1025
+        --max-model-len 16384
+        --dtype half
+        --trust-remote-code
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
