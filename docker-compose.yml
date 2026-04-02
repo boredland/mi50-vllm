@@ -1,6 +1,6 @@
 services:
   vllm:
-    image: lykaos/vllm-gfx:v0.11.2-rocm6.3
+    image: lykaos/vllm-gfx:0.11.0-gfx906-rocm634
     ports:
       - "30024:8000"
     volumes:
