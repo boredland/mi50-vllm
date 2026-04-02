@@ -33,28 +33,6 @@ services:
       retries: 10
       start_period: 120s
 
-  olmocr:
-    build:
-      context: .
-      dockerfile: Dockerfile.olmocr
-    volumes:
-      - ./workspace:/workspace
-      - ./input:/input
-      - huggingface-cache:/root/.cache/huggingface
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-    depends_on:
-      vllm:
-        condition: service_healthy
-    entrypoint: ["/bin/bash"]
-    # Default: process all PDFs in /input, output markdown to /workspace
-    # Override with: docker compose run olmocr -c "olmocr /workspace --markdown --pdfs /input/*.pdf --server http://vllm:8000/v1"
-    command:
-      - -c
-      - |
-        echo "olmocr ready. vLLM server at http://vllm:8000/v1"
-        echo "Usage: olmocr /workspace --markdown --pdfs /input/*.pdf --server http://vllm:8000/v1"
-        exec bash
 
 volumes:
   huggingface-cache:
