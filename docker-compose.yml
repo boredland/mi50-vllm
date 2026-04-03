@@ -1,15 +1,17 @@
 services:
   vllm:
-    image: lykaos/vllm-gfx:0.11.0-gfx906-rocm634
+    image: vllm/vllm-openai-rocm:latest
     ports:
       - "30024:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
+      - ./patch_qwen2_5_vl_attention.py:/patch/patch_qwen2_5_vl_attention.py:ro
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-      - HSA_OVERRIDE_GFX_VERSION=9.0.6
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
       - VLLM_USE_TRITON_FLASH_ATTN=1
       - NCCL_P2P_DISABLE=1
+      - HIP_VISIBLE_DEVICES=0
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
@@ -20,11 +22,16 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
+        python3 /patch/patch_qwen2_5_vl_attention.py &&
         python3 -m vllm.entrypoints.openai.api_server
         --model allenai/olmOCR-2-7B-1025
-        --max-model-len 16384
+        --max-model-len 8192
         --dtype half
         --trust-remote-code
+        --enforce-eager
+        --gpu-memory-utilization 0.85
+        --max-num-seqs 4
+        --limit-mm-per-prompt '{"image":1}'
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
