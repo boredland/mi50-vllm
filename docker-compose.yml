@@ -5,11 +5,9 @@ services:
       - "30024:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
-      - ./patch_qwen2_5_vl_attention.py:/patch/patch_qwen2_5_vl_attention.py:ro
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
       - HSA_OVERRIDE_GFX_VERSION=11.0.0
-      - VLLM_USE_TRITON_FLASH_ATTN=1
       - NCCL_P2P_DISABLE=1
       - HIP_VISIBLE_DEVICES=0
     devices:
@@ -22,7 +20,6 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
-        python3 /patch/patch_qwen2_5_vl_attention.py &&
         python3 -m vllm.entrypoints.openai.api_server
         --model allenai/olmOCR-2-7B-1025
         --max-model-len 8192
