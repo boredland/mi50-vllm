@@ -84,30 +84,41 @@ def patch_file(filepath):
     if "F.scaled_dot_product_attention" not in content:
         return False
 
-    # Insert chunked SDPA function before the first function that uses it
-    # Find a good insertion point: before the function containing the SDPA call
-    pattern = r'(def \w+sdpa_wrapper\b|def forward\b)'
-    match = re.search(pattern, content)
-    if match:
-        insert_pos = match.start()
+    # Insert chunked SDPA function at module level (after imports, before classes)
+    # Find the last top-level import line
+    import_pattern = r'^(?:import |from )\S+'
+    last_import_end = 0
+    for m in re.finditer(import_pattern, content, re.MULTILINE):
+        last_import_end = m.end()
+    if last_import_end > 0:
+        # Find end of that line
+        insert_pos = content.find("\n", last_import_end) + 1
     else:
-        # Fallback: insert before the SDPA call
         idx = content.find("F.scaled_dot_product_attention")
         insert_pos = content.rfind("\n", 0, idx) + 1
 
     content = content[:insert_pos] + CHUNKED_SDPA_CODE + "\n" + content[insert_pos:]
 
-    # Replace F.scaled_dot_product_attention calls (match any keyword args)
-    sdpa_pattern = r'F\.scaled_dot_product_attention\(([^)]+?)\)'
-    def sdpa_replacer(m):
-        args = m.group(1).strip()
-        return f'_chunked_sdpa({args})'
-    new_content, count = re.subn(
-        sdpa_pattern,
-        sdpa_replacer,
-        content,
-        flags=re.DOTALL,
-    )
+    # Replace F.scaled_dot_product_attention calls
+    # Match the function call including multiline args, using balanced parens
+    count = 0
+    while "F.scaled_dot_product_attention(" in content:
+        idx = content.find("F.scaled_dot_product_attention(")
+        # Find matching closing paren
+        start = idx + len("F.scaled_dot_product_attention(")
+        depth = 1
+        pos = start
+        while pos < len(content) and depth > 0:
+            if content[pos] == '(':
+                depth += 1
+            elif content[pos] == ')':
+                depth -= 1
+            pos += 1
+        args = content[start:pos-1].strip()
+        replacement = f'_chunked_sdpa({args})'
+        content = content[:idx] + replacement + content[pos:]
+        count += 1
+    new_content = content
 
     if count == 0:
         print(f"[patch] {filepath.name}: WARNING - found F.scaled_dot_product_attention but regex didn't match.")
@@ -124,8 +135,54 @@ def patch_file(filepath):
     return True
 
 
+def patch_safetensors_cpu_loading():
+    """
+    Patch safetensors weight loading to use CPU then transfer to GPU.
+    Fixes 'Memory access fault' on gfx906 with direct-to-GPU safetensors loading.
+    """
+    weight_utils = find_file("weight_utils.py")
+    if not weight_utils:
+        print("[patch] weight_utils.py not found - skipping CPU load patch.")
+        return
+
+    content = weight_utils.read_text()
+    marker = "CPU LOAD PATCH"
+
+    if marker in content:
+        print(f"[patch] weight_utils.py: CPU load already patched -- skipping.")
+        return
+
+    # Patch safe_open get_tensor to load via CPU
+    old = '''            with safe_open(st_file, framework="pt") as f:
+                for name in f.keys():  # noqa: SIM118
+                    param = f.get_tensor(name)
+                    yield name, param'''
+
+    new = '''            # --- BEGIN CPU LOAD PATCH (gfx906 memory fault fix) ---
+            with safe_open(st_file, framework="pt", device="cpu") as f:
+                for name in f.keys():  # noqa: SIM118
+                    param = f.get_tensor(name)
+                    yield name, param
+            # --- END CPU LOAD PATCH ---'''
+
+    if old in content:
+        content = content.replace(old, new)
+        backup = weight_utils.with_suffix(".py.bak")
+        if not backup.exists():
+            weight_utils.rename(backup)
+        else:
+            weight_utils.unlink()
+        weight_utils.write_text(content)
+        print(f"[patch] weight_utils.py: patched safetensors to load via CPU")
+    else:
+        print(f"[patch] weight_utils.py: could not find safe_open block to patch")
+
+
 def main():
     patched = False
+
+    # Patch safetensors CPU loading (gfx906 memory fault fix)
+    patch_safetensors_cpu_loading()
 
     # v0.11.2: SDPA is in vit_attn_wrappers.py
     wrappers = find_file("vit_attn_wrappers.py")
@@ -145,7 +202,7 @@ def main():
         print("[patch] ERROR: Could not find or patch F.scaled_dot_product_attention in any file.")
         sys.exit(1)
 
-    print("[patch] Done. Chunk size: 1024 query rows.")
+    print("[patch] Done.")
 
 
 if __name__ == "__main__":

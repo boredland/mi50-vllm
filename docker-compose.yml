@@ -23,6 +23,8 @@ x-vllm-common: &vllm-common
 services:
   # AMD iGPU (Radeon 880M/890M, RDNA 3.5)
   # Usage: docker compose up igpu -d
+  # NOTE: HIP_VISIBLE_DEVICES depends on which GPUs are present:
+  #   Both GPUs: MI50=0, iGPU=1 | iGPU only: iGPU=0
   igpu:
     <<: *vllm-common
     image: vllm/vllm-openai-rocm:latest
@@ -31,7 +33,7 @@ services:
     environment:
       <<: *vllm-env
       HSA_OVERRIDE_GFX_VERSION: "11.0.0"
-      HIP_VISIBLE_DEVICES: "0"
+      HIP_VISIBLE_DEVICES: "1"
     command:
       - >-
         python3 -m vllm.entrypoints.openai.api_server
@@ -57,7 +59,8 @@ services:
     environment:
       <<: *vllm-env
       HSA_OVERRIDE_GFX_VERSION: "9.0.6"
-      HIP_VISIBLE_DEVICES: "1"
+      HIP_VISIBLE_DEVICES: "0"
+      ROCR_VISIBLE_DEVICES: "0"
     command:
       - >-
         python3 /patch/patch_qwen2_5_vl_attention.py &&
