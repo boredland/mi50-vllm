@@ -1,77 +1,40 @@
-x-vllm-common: &vllm-common
-  volumes:
-    - huggingface-cache:/root/.cache/huggingface
-  environment: &vllm-env
-    HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
-    NCCL_P2P_DISABLE: "1"
-  devices:
-    - /dev/kfd:/dev/kfd
-    - /dev/dri:/dev/dri
-  group_add:
-    - video
-    - "992"  # render group GID
-  ipc: host
-  entrypoint: ["/bin/bash", "-c"]
-  restart: unless-stopped
-  healthcheck:
-    test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-    interval: 30s
-    timeout: 10s
-    retries: 10
-    start_period: 300s
-
 services:
-  # AMD iGPU (Radeon 880M/890M, RDNA 3.5)
-  # Usage: docker compose up igpu -d
-  # NOTE: HIP_VISIBLE_DEVICES depends on which GPUs are present:
-  #   Both GPUs: MI50=0, iGPU=1 | iGPU only: iGPU=0
-  igpu:
-    <<: *vllm-common
-    image: vllm/vllm-openai-rocm:latest
-    ports:
-      - "30024:8000"
-    environment:
-      <<: *vllm-env
-      HSA_OVERRIDE_GFX_VERSION: "11.0.0"
-      HIP_VISIBLE_DEVICES: "1"
-    command:
-      - >-
-        python3 -m vllm.entrypoints.openai.api_server
-        --model allenai/olmOCR-2-7B-1025
-        --max-model-len 8192
-        --dtype half
-        --trust-remote-code
-        --enforce-eager
-        --gpu-memory-utilization 0.85
-        --max-num-seqs 4
-        --limit-mm-per-prompt '{"image":1}'
-
-  # AMD Instinct MI50 32GB (gfx906)
-  # Usage: docker compose up mi50 -d
   mi50:
-    <<: *vllm-common
-    image: lykaos/vllm-gfx:0.11.0-gfx906-rocm634
+    image: mixa3607/vllm-gfx906:0.19.1-rocm-6.3.3-aiinfos
     ports:
       - "30024:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
-      - ./patch_qwen2_5_vl_attention.py:/patch/patch_qwen2_5_vl_attention.py:ro
     environment:
-      <<: *vllm-env
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      NCCL_P2P_DISABLE: "1"
       HSA_OVERRIDE_GFX_VERSION: "9.0.6"
       HIP_VISIBLE_DEVICES: "0"
-      ROCR_VISIBLE_DEVICES: "0"
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - "992"
+    ipc: host
+    entrypoint: ["/bin/bash", "-c"]
     command:
       - >-
-        python3 /patch/patch_qwen2_5_vl_attention.py &&
         python3 -m vllm.entrypoints.openai.api_server
-        --model allenai/olmOCR-2-7B-1025
-        --max-model-len 16384
+        --model QuantTrio/gemma-4-31B-it-AWQ
+        --max-model-len 8192
         --dtype half
         --trust-remote-code
         --enforce-eager
         --max-num-seqs 4
-        --limit-mm-per-prompt '{"image":1}'
+        --quantization awq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 600s
 
 volumes:
   huggingface-cache:
